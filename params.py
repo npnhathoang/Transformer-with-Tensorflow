@@ -1,5 +1,4 @@
 import argparse
-from ast import arg
 
 class params:
     parser = argparse.ArgumentParser()
