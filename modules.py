@@ -16,7 +16,7 @@ def positional_encoding(input, max_len, masking=True, scope='positional_encoding
     E = input.get_shape().as_list()[-1]
     N, T = tf.shape(input)[0], tf.shape(input)[1]
     
-    with tf.variable_scope(scope, reuse=tf.REUSE):
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
         position_idx = tf.tile(tf.expand_dims(tf.range(T), 0), [N, 1])
         position_encoder = np.array([
                                     [pos / np.power(10000, (i-i%2)/E) for i in range(E)] for pos in range(max_len)])
@@ -31,10 +31,23 @@ def positional_encoding(input, max_len, masking=True, scope='positional_encoding
     return res
 
 def mask(input, key=None, type=None):
-    pass
+    padding = -2**32 -1
+    if type=='keys':
+        key_mask = tf.to_float(key)
+        key_mask = tf.tile(key_mask, [tf.shape(input)[0] // tf.shape(key_mask)[0], 1])
+        key_mask = tf.expand_dims(key_mask, 1)
+        res = input + key_mask * padding
+    elif type=='future':
+        diag = tf.ones_like(input[0, :, :])
+        temp = tf.linalg.LinearOperatorLowerTriangular(diag).to_dense()
+        mask = tf.tile(tf.expand_dims(temp, 0), [tf.shape(input)[0], 1, 1])
+        pad = tf.ones_like(mask) * padding
+        res = tf.where(tf.equal(mask, 0), pad, input)
+
+    return res
 
 def self_attention(q, k, v, key, scope='self_attention'):
-    with tf.variable_scope(scope, reuse=tf.REUSE):
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
         d_k = q.get_shape().as_list()[-1]
         output = tf.matmul(q, tf.transpose(k, [0, 2, 1]))  # (N, T_q, T_k)
         output /= d_k ** 0.5
@@ -52,10 +65,30 @@ def self_attention(q, k, v, key, scope='self_attention'):
     return res
 
 def multihead_attention(q, k, v, key, num_head=8, scope='multihead_attention'):
-    pass
+    d_model = q.get_shape().as_list()[-1]
+
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+        Q = tf.layers.dense(q, d_model, use_bias=True)
+        K = tf.layers.dense(k, d_model, use_bias=True)
+        V = tf.layers.dense(v, d_model, use_bias=True)
+
+        queries = tf.concat(tf.split(Q, num_head, axis=2), axis=0)
+        keys = tf.concat(tf.split(K, num_head, axis=2), axis=0)
+        values = tf.concat(tf.split(V, num_head, axis=2), axis=0)
+
+        # attention
+        res = self_attention(queries, keys, values, key)
+
+        #reshape
+        res = tf.concat(tf.split(res, num_head, axis=0), axis=2)
+        # add & norm
+        res += queries
+        res = layer_norm(res)
+
+    return res
 
 def feed_forward(input, num_node, scope='feed_forward'):
-    with tf.variable_scope(scope, reuse=tf.REUSE):
+    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
         nn = tf.layers.dense(input, num_node[0], activation=tf.nn.relu)
         nn = tf.layers.dense(nn, num_node[1])
         nn += input     # residual connection
