@@ -35,7 +35,7 @@ class Transformer:
     '''
     '''
     def decoder(self, context, src_mask, sent_tgt, training=True):
-        with tf.variable_scope('decoder', reuse=tf.REUSE):
+        with tf.variable_scope('decoder', reuse=tf.AUTO_REUSE):
             decoder_input, y, _,tgt_sentence = sent_tgt
             tgt_mask = tf.math.equal(decoder_input, 0)
             
@@ -44,7 +44,12 @@ class Transformer:
             decoder += positional_encoding(decoder, self.params.max_len_tgt)
 
             # decoder block
-
+            for i in range(self.params.num_blocks):
+                with tf.variable_scope("num_block {}".format(i), reuse=tf.AUTO_REUSE):
+                    decoder = multihead_attention(q=decoder, k=decoder, v=decoder,
+                                                    key=tgt_mask, num_head=self.params.num_att_head,
+                                                    scope='multihead_attention')
+                    decoder = feed_forward(decoder, num_node=[self.params.d_net, self.params.d_model])
 
         weights = tf.transpose(self.embedding)
         logits = tf.einsum('ntd,dk->ntk', decoder, weights)
